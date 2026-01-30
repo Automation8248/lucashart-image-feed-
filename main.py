@@ -3,23 +3,19 @@ import json
 import requests
 import textwrap
 import shutil
+import time
 from PIL import Image, ImageDraw, ImageFont
 
 # --- GLOBAL CONFIGURATION ---
-# Common secrets
 PIXABAY_KEY = os.getenv('PIXABAY_KEY')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
-# Check if Manual Run or Scheduled
 IS_MANUAL = os.getenv('GITHUB_EVENT_NAME') == 'workflow_dispatch'
 
-# --- TOPIC CONFIGURATION (Here are the missing options) ---
 CONFIG = [
     {
         "id": "nature",
         "type": "folder",
         "folder_path": "content/nature",
-        # 👇 Specific Token & Webhook for Nature
         "token": os.getenv('TELEGRAM_TOKEN_NATURE'),
         "webhook": os.getenv('WEBHOOK_NATURE'),
         "seo": "🌿 Nature Vibes. #Nature #Earth #Peace #Wilderness",
@@ -28,7 +24,6 @@ CONFIG = [
         "id": "wildsnap",
         "type": "folder",
         "folder_path": "content/wildsnap",
-        # 👇 Specific Token & Webhook for WildSnap
         "token": os.getenv('TELEGRAM_TOKEN_WILDSNAP'),
         "webhook": os.getenv('WEBHOOK_WILDSNAP'),
         "seo": "🦁 Wild World. #WildSnap #Wildlife #Animals #NaturePhotography",
@@ -36,17 +31,13 @@ CONFIG = [
     {
         "id": "motivation",
         "type": "generated",
-        # 👇 Specific Token & Webhook for Motivation
         "token": os.getenv('TELEGRAM_TOKEN_MOTIVATION'),
         "webhook": os.getenv('WEBHOOK_MOTIVATION'),
         "seo": "💡 Daily Wisdom. #Motivation #LucasHart #Zen #Inspiration",
     }
 ]
 
-# --- HELPER FUNCTIONS ---
-
 def get_font():
-    """Downloads Roboto-Bold (Arial alternative) for White Text"""
     font_path = "arial_style.ttf"
     if not os.path.exists(font_path):
         url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
@@ -56,47 +47,33 @@ def get_font():
     return font_path
 
 def create_motivation_image():
-    """Generates 1080x1350 Image with Pure White Text"""
+    """Generates Optimized 1080x1350 Image"""
     try:
-        # 1. Get Content
-        quote_data = requests.get("https://zenquotes.io/api/random").json()[0]
+        # 1. Get Quote
+        quote_data = requests.get("https://zenquotes.io/api/random", timeout=10).json()[0]
         quote_text = f'"{quote_data["q"]}"'
         author_text = "- Lucas Hart"
 
-        # 2. Get Background
+        # 2. Get Background (Use 'webformatURL' for speed instead of huge 'largeImageURL')
         pix_url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q=nature+dark+forest&image_type=photo&orientation=vertical&per_page=3"
-        bg_url = requests.get(pix_url).json()['hits'][0]['largeImageURL']
+        pix_data = requests.get(pix_url, timeout=10).json()
+        bg_url = pix_data['hits'][0]['webformatURL'] # <-- FASTER DOWNLOAD
         
         with open("temp_bg.jpg", "wb") as f:
-            f.write(requests.get(bg_url).content)
+            f.write(requests.get(bg_url, timeout=20).content)
         
-        # 3. Process Image (Resize/Crop to 1080x1350)
+        # 3. Process Image
         img = Image.open("temp_bg.jpg").convert("RGB")
         target_size = (1080, 1350)
         
-        # Smart Resize Logic (Fill Strategy)
-        img_ratio = img.width / img.height
-        target_ratio = target_size[0] / target_size[1]
-        
-        if img_ratio > target_ratio:
-            new_height = target_size[1]
-            new_width = int(new_height * img_ratio)
-        else:
-            new_width = target_size[0]
-            new_height = int(new_width / img_ratio)
-            
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # Center Crop
-        left = (img.width - target_size[0]) / 2
-        top = (img.height - target_size[1]) / 2
-        img = img.crop((left, top, left + target_size[0], top + target_size[1]))
+        # Fast Resize
+        img = img.resize(target_size, Image.Resampling.LANCZOS)
 
-        # 4. Add Dark Overlay (So White Text Pops)
-        overlay = Image.new('RGBA', img.size, (0, 0, 0, 110)) # Darker for better visibility
+        # Overlay
+        overlay = Image.new('RGBA', img.size, (0, 0, 0, 110))
         img.paste(overlay, (0, 0), overlay)
         
-        # 5. Draw Text (Pure White)
+        # Text
         draw = ImageDraw.Draw(img)
         font_path = get_font()
         font_quote = ImageFont.truetype(font_path, 55)
@@ -109,7 +86,6 @@ def create_motivation_image():
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font_quote)
             w = bbox[2] - bbox[0]
-            # Fill = (255, 255, 255) is PURE WHITE
             draw.text(((target_size[0] - w) / 2, y_text), line, font=font_quote, fill=(255, 255, 255))
             y_text += 65
         
@@ -119,101 +95,111 @@ def create_motivation_image():
         draw.text(((target_size[0] - w) / 2, y_text), author_text, font=font_author, fill=(255, 255, 255))
 
         final_path = "final_post.jpg"
-        img.save(final_path)
+        # Optimize & Compress (Quality 85 makes it much smaller & faster to upload)
+        img.save(final_path, optimize=True, quality=85) 
         return final_path
     except Exception as e:
-        print(f"Error creating image: {e}")
+        print(f"❌ Image Gen Error: {e}")
         return None
 
 def get_file_from_folder(folder_path):
-    """Pick first file from folder"""
     if not os.path.exists(folder_path): return None
     files = [f for f in sorted(os.listdir(folder_path)) if not f.startswith('.')]
     if not files: return None
     return os.path.join(folder_path, files[0])
 
 def upload_to_catbox(file_path):
-    """Upload to Catbox"""
+    """Upload with Timeout & Error Check"""
     try:
         url = "https://catbox.moe/user/api.php"
         payload = {'reqtype': 'fileupload'}
+        file_size = os.path.getsize(file_path) / (1024 * 1024)
+        print(f"   📂 Uploading {file_size:.2f} MB file...")
+        
         with open(file_path, 'rb') as f:
             files = {'fileToUpload': f}
-            r = requests.post(url, data=payload, files=files)
-        return r.text
-    except: return None
+            # 60s timeout taaki hang na ho
+            r = requests.post(url, data=payload, files=files, timeout=60)
+        
+        if r.status_code == 200 and "http" in r.text:
+            return r.text
+        else:
+            print(f"   ❌ Catbox Error: {r.text}")
+            return None
+    except Exception as e: 
+        print(f"   ❌ Upload Exception: {e}")
+        return None
 
 def send_content(token, webhook, file_url, caption):
-    """Send to specific Telegram Bot and Webhook"""
-    # 1. Telegram
+    # CRASH FIX: Agar URL nahi hai to yahi ruk jao
+    if not file_url:
+        print("   ⚠️ No URL to send. Skipping Telegram/Webhook.")
+        return
+
     if token and CHAT_ID:
-        api_url = f"https://api.telegram.org/bot{token}/sendPhoto"
-        if file_url.endswith(('.mp4', '.mov', '.avi')):
-            api_url = f"https://api.telegram.org/bot{token}/sendVideo"
-            payload = {"chat_id": CHAT_ID, "video": file_url, "caption": caption}
-        else:
-            payload = {"chat_id": CHAT_ID, "photo": file_url, "caption": caption}
-        try: requests.post(api_url, json=payload)
-        except Exception as e: print(f"Telegram Error: {e}")
+        try:
+            api_url = f"https://api.telegram.org/bot{token}/sendPhoto"
+            if file_url.endswith(('.mp4', '.mov', '.avi')):
+                api_url = f"https://api.telegram.org/bot{token}/sendVideo"
+                payload = {"chat_id": CHAT_ID, "video": file_url, "caption": caption}
+            else:
+                payload = {"chat_id": CHAT_ID, "photo": file_url, "caption": caption}
+            requests.post(api_url, json=payload, timeout=10)
+        except Exception as e: print(f"   Telegram Error: {e}")
     
-    # 2. Webhook
     if webhook:
-        data = {"content": f"{caption}\n{file_url}"}
-        try: requests.post(webhook, json=data)
+        try:
+            data = {"content": f"{caption}\n{file_url}"}
+            requests.post(webhook, json=data, timeout=5)
         except: pass
 
 def process_topic(topic_data):
-    """Logic to process a single topic"""
     print(f"🚀 Processing Topic: {topic_data['id']}")
     
     file_path = None
     file_to_delete = None
 
-    # Step A: Get Content
     if topic_data['type'] == 'folder':
         file_path = get_file_from_folder(topic_data['folder_path'])
         file_to_delete = file_path
     else:
         file_path = create_motivation_image()
-        # Motivation is temp file, delete locally only
         
     if not file_path:
-        print(f"❌ No content found for {topic_data['id']}")
+        print(f"   ❌ No content found for {topic_data['id']}")
         return
 
-    # Step B: Upload
+    # Upload
     catbox_url = upload_to_catbox(file_path)
-    print(f"✅ Uploaded: {catbox_url}")
+    
+    # CRASH FIX: Check if upload succeeded
+    if catbox_url:
+        print(f"   ✅ Uploaded: {catbox_url}")
+        send_content(topic_data['token'], topic_data['webhook'], catbox_url, topic_data['seo'])
 
-    # Step C: Send (Using specific Token & Webhook)
-    send_content(topic_data['token'], topic_data['webhook'], catbox_url, topic_data['seo'])
+        # Cleanup only if success
+        if topic_data['type'] == 'folder' and file_to_delete:
+            os.remove(file_to_delete)
+            print("   🗑️ File deleted from folder")
+        elif topic_data['type'] == 'generated':
+            os.remove(file_path)
+    else:
+        print("   ⚠️ Upload failed. Keeping file for retry.")
 
-    # Step D: Cleanup
-    if topic_data['type'] == 'folder' and file_to_delete:
-        os.remove(file_to_delete) # Delete from GitHub repo
-        print("🗑️ File deleted from folder")
-    elif topic_data['type'] == 'generated':
-        os.remove(file_path) # Delete temp image
-
-# --- MAIN EXECUTION ---
 def main():
-    # Load State
     if not os.path.exists('state.json'):
         with open('state.json', 'w') as f: json.dump({"current_index": 0}, f)
     with open('state.json', 'r') as f: state = json.load(f)
 
-    # LOGIC SWITCH
     if IS_MANUAL:
         print("🔧 MANUAL MODE: Posting ALL 3 Topics...")
         for topic in CONFIG:
             process_topic(topic)
-        # Manual run does NOT change rotation
     else:
         print("⏰ AUTO MODE: Posting Single Rotated Topic...")
         idx = state['current_index']
         process_topic(CONFIG[idx])
         
-        # Update Rotation
         next_idx = (idx + 1) % len(CONFIG)
         state['current_index'] = next_idx
         with open('state.json', 'w') as f: json.dump(state, f)
