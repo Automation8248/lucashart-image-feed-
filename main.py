@@ -2,189 +2,104 @@ import os
 import json
 import requests
 import textwrap
-import shutil
 import time
 from PIL import Image, ImageDraw, ImageFont
 
-# --- GLOBAL CONFIGURATION ---
+# --- CONFIGURATION ---
 PIXABAY_KEY = os.getenv('PIXABAY_KEY')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 IS_MANUAL = os.getenv('GITHUB_EVENT_NAME') == 'workflow_dispatch'
 
 CONFIG = [
-    {
-        "id": "nature",
-        "type": "folder",
-        "folder_path": "content/nature",
-        "token": os.getenv('TELEGRAM_TOKEN_NATURE'),
-        "webhook": os.getenv('WEBHOOK_NATURE'),
-        "seo": "🌿 Nature Vibes. #Nature #Earth #Peace #Wilderness",
-    },
-    {
-        "id": "wildsnap",
-        "type": "folder",
-        "folder_path": "content/wildsnap",
-        "token": os.getenv('TELEGRAM_TOKEN_WILDSNAP'),
-        "webhook": os.getenv('WEBHOOK_WILDSNAP'),
-        "seo": "🦁 Wild World. #WildSnap #Wildlife #Animals #NaturePhotography",
-    },
-    {
-        "id": "motivation",
-        "type": "generated",
-        "token": os.getenv('TELEGRAM_TOKEN_MOTIVATION'),
-        "webhook": os.getenv('WEBHOOK_MOTIVATION'),
-        "seo": "💡 Daily Wisdom. #Motivation #LucasHart #Zen #Inspiration",
-    }
+    {"id": "nature", "type": "folder", "folder_path": "content/nature", "token": os.getenv('TELEGRAM_TOKEN_NATURE'), "webhook": os.getenv('WEBHOOK_NATURE'), "seo": "🌿 Nature Vibes. #Nature #Earth"},
+    {"id": "wildsnap", "type": "folder", "folder_path": "content/wildsnap", "token": os.getenv('TELEGRAM_TOKEN_WILDSNAP'), "webhook": os.getenv('WEBHOOK_WILDSNAP'), "seo": "🦁 Wild World. #WildSnap #Wildlife"},
+    {"id": "motivation", "type": "generated", "token": os.getenv('TELEGRAM_TOKEN_MOTIVATION'), "webhook": os.getenv('WEBHOOK_MOTIVATION'), "seo": "💡 Daily Wisdom. #Motivation #LucasHart"}
 ]
 
 def get_font():
-    font_path = "arial_style.ttf"
+    font_path = "font.ttf"
     if not os.path.exists(font_path):
         url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
-        r = requests.get(url)
-        with open(font_path, "wb") as f:
-            f.write(r.content)
+        try:
+            r = requests.get(url, timeout=5)
+            with open(font_path, "wb") as f: f.write(r.content)
+        except: return None
     return font_path
 
 def create_motivation_image():
-    """Generates Optimized 1080x1350 Image"""
+    """Super fast 1080x1350 generation using thumbnails"""
     try:
-        # 1. Get Quote
-        quote_data = requests.get("https://zenquotes.io/api/random", timeout=10).json()[0]
-        quote_text = f'"{quote_data["q"]}"'
-        author_text = "- Lucas Hart"
+        # Quote fetch
+        q_data = requests.get("https://zenquotes.io/api/random", timeout=5).json()[0]
+        quote_text, author_text = f'"{q_data["q"]}"', "- Lucas Hart"
 
-        # 2. Get Background (Use 'webformatURL' for speed instead of huge 'largeImageURL')
-        pix_url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q=nature+dark+forest&image_type=photo&orientation=vertical&per_page=3"
-        pix_data = requests.get(pix_url, timeout=10).json()
-        bg_url = pix_data['hits'][0]['webformatURL'] # <-- FASTER DOWNLOAD
+        # Pixabay - Using 'webformatURL' for extreme speed (under 500kb)
+        p_url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q=nature+dark&orientation=vertical&per_page=3"
+        pix_data = requests.get(p_url, timeout=5).json()
+        bg_url = pix_data['hits'][0]['webformatURL']
         
-        with open("temp_bg.jpg", "wb") as f:
-            f.write(requests.get(bg_url, timeout=20).content)
+        # Download & Save BG
+        with open("bg.jpg", "wb") as f: f.write(requests.get(bg_url, timeout=10).content)
         
-        # 3. Process Image
-        img = Image.open("temp_bg.jpg").convert("RGB")
-        target_size = (1080, 1350)
-        
-        # Fast Resize
-        img = img.resize(target_size, Image.Resampling.LANCZOS)
-
-        # Overlay
-        overlay = Image.new('RGBA', img.size, (0, 0, 0, 110))
+        # Image Processing
+        img = Image.open("bg.jpg").convert("RGB").resize((1080, 1350))
+        overlay = Image.new('RGBA', img.size, (0, 0, 0, 130))
         img.paste(overlay, (0, 0), overlay)
         
-        # Text
-        draw = ImageDraw.Draw(img)
-        font_path = get_font()
-        font_quote = ImageFont.truetype(font_path, 55)
-        font_author = ImageFont.truetype(font_path, 35)
-
-        lines = textwrap.wrap(quote_text, width=22)
-        total_text_height = (len(lines) * 65) + 60
-        y_text = (target_size[1] - total_text_height) / 2
-
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font_quote)
-            w = bbox[2] - bbox[0]
-            draw.text(((target_size[0] - w) / 2, y_text), line, font=font_quote, fill=(255, 255, 255))
-            y_text += 65
+        draw, font_p = ImageDraw.Draw(img), get_font()
+        f_quote = ImageFont.truetype(font_p, 55) if font_p else ImageFont.load_default()
         
-        y_text += 20
-        bbox = draw.textbbox((0, 0), author_text, font=font_author)
-        w = bbox[2] - bbox[0]
-        draw.text(((target_size[0] - w) / 2, y_text), author_text, font=font_author, fill=(255, 255, 255))
-
-        final_path = "final_post.jpg"
-        # Optimize & Compress (Quality 85 makes it much smaller & faster to upload)
-        img.save(final_path, optimize=True, quality=85) 
-        return final_path
+        lines = textwrap.wrap(quote_text, width=22)
+        y = (1350 - (len(lines) * 70)) / 2
+        for line in lines:
+            w = draw.textbbox((0, 0), line, font=f_quote)[2]
+            draw.text(((1080 - w) / 2, y), line, font=f_quote, fill="white")
+            y += 70
+        
+        img.save("post.jpg", optimize=True, quality=80) # High compression for fast upload
+        return "post.jpg"
     except Exception as e:
-        print(f"❌ Image Gen Error: {e}")
+        print(f"❌ Motivation Error: {e}")
         return None
-
-def get_file_from_folder(folder_path):
-    if not os.path.exists(folder_path): return None
-    files = [f for f in sorted(os.listdir(folder_path)) if not f.startswith('.')]
-    if not files: return None
-    return os.path.join(folder_path, files[0])
 
 def upload_to_catbox(file_path):
-    """Upload with Timeout & Error Check"""
+    """Fast upload with short timeout"""
     try:
         url = "https://catbox.moe/user/api.php"
-        payload = {'reqtype': 'fileupload'}
-        file_size = os.path.getsize(file_path) / (1024 * 1024)
-        print(f"   📂 Uploading {file_size:.2f} MB file...")
-        
         with open(file_path, 'rb') as f:
-            files = {'fileToUpload': f}
-            # 60s timeout taaki hang na ho
-            r = requests.post(url, data=payload, files=files, timeout=60)
-        
-        if r.status_code == 200 and "http" in r.text:
-            return r.text
-        else:
-            print(f"   ❌ Catbox Error: {r.text}")
-            return None
-    except Exception as e: 
-        print(f"   ❌ Upload Exception: {e}")
-        return None
+            # 20s timeout taaki total run time 1:20 se upar na jaye
+            r = requests.post(url, data={'reqtype': 'fileupload'}, files={'fileToUpload': f}, timeout=20)
+        return r.text if "http" in r.text else None
+    except: return None
 
-def send_content(token, webhook, file_url, caption):
-    # CRASH FIX: Agar URL nahi hai to yahi ruk jao
-    if not file_url:
-        print("   ⚠️ No URL to send. Skipping Telegram/Webhook.")
-        return
-
+def send_content(token, webhook, url, caption):
+    if not url: return
     if token and CHAT_ID:
         try:
-            api_url = f"https://api.telegram.org/bot{token}/sendPhoto"
-            if file_url.endswith(('.mp4', '.mov', '.avi')):
-                api_url = f"https://api.telegram.org/bot{token}/sendVideo"
-                payload = {"chat_id": CHAT_ID, "video": file_url, "caption": caption}
-            else:
-                payload = {"chat_id": CHAT_ID, "photo": file_url, "caption": caption}
-            requests.post(api_url, json=payload, timeout=10)
-        except Exception as e: print(f"   Telegram Error: {e}")
-    
+            mode = "sendVideo" if url.endswith(('.mp4', '.mov')) else "sendPhoto"
+            key = "video" if mode == "sendVideo" else "photo"
+            requests.post(f"https://api.telegram.org/bot{token}/{mode}", json={"chat_id": CHAT_ID, key: url, "caption": caption}, timeout=10)
+        except: pass
     if webhook:
-        try:
-            data = {"content": f"{caption}\n{file_url}"}
-            requests.post(webhook, json=data, timeout=5)
+        try: requests.post(webhook, json={"content": f"{caption}\n{url}"}, timeout=5)
         except: pass
 
-def process_topic(topic_data):
-    print(f"🚀 Processing Topic: {topic_data['id']}")
-    
-    file_path = None
-    file_to_delete = None
-
-    if topic_data['type'] == 'folder':
-        file_path = get_file_from_folder(topic_data['folder_path'])
-        file_to_delete = file_path
+def process_topic(topic):
+    print(f"🚀 Topic: {topic['id']}")
+    path = None
+    if topic['type'] == 'folder':
+        files = [f for f in sorted(os.listdir(topic['folder_path'])) if not f.startswith('.')]
+        if files: path = os.path.join(topic['folder_path'], files[0])
     else:
-        file_path = create_motivation_image()
-        
-    if not file_path:
-        print(f"   ❌ No content found for {topic_data['id']}")
-        return
+        path = create_motivation_image()
 
-    # Upload
-    catbox_url = upload_to_catbox(file_path)
-    
-    # CRASH FIX: Check if upload succeeded
-    if catbox_url:
-        print(f"   ✅ Uploaded: {catbox_url}")
-        send_content(topic_data['token'], topic_data['webhook'], catbox_url, topic_data['seo'])
-
-        # Cleanup only if success
-        if topic_data['type'] == 'folder' and file_to_delete:
-            os.remove(file_to_delete)
-            print("   🗑️ File deleted from folder")
-        elif topic_data['type'] == 'generated':
-            os.remove(file_path)
-    else:
-        print("   ⚠️ Upload failed. Keeping file for retry.")
+    if path:
+        url = upload_to_catbox(path)
+        if url:
+            print(f"✅ Link: {url}")
+            send_content(topic['token'], topic['webhook'], url, topic['seo'])
+            if topic['type'] == 'folder': os.remove(path)
+        else: print("⚠️ Catbox Down. Skipping...")
 
 def main():
     if not os.path.exists('state.json'):
@@ -192,17 +107,11 @@ def main():
     with open('state.json', 'r') as f: state = json.load(f)
 
     if IS_MANUAL:
-        print("🔧 MANUAL MODE: Posting ALL 3 Topics...")
-        for topic in CONFIG:
-            process_topic(topic)
+        for t in CONFIG: process_topic(t)
     else:
-        print("⏰ AUTO MODE: Posting Single Rotated Topic...")
         idx = state['current_index']
         process_topic(CONFIG[idx])
-        
-        next_idx = (idx + 1) % len(CONFIG)
-        state['current_index'] = next_idx
+        state['current_index'] = (idx + 1) % len(CONFIG)
         with open('state.json', 'w') as f: json.dump(state, f)
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
