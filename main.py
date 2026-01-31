@@ -4,6 +4,7 @@ import textwrap
 import json
 import time
 import io
+import random  # <--- NEW: Randomness ke liye
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 # --- CONFIGURATION ---
@@ -16,14 +17,10 @@ FIXED_AUTHOR = "- Lucas Hart"
 
 def get_safe_font():
     """Gets a Professional Font (Uses System Font to avoid download errors)"""
-    
-    # Option 1: Linux System Font (Best for GitHub Actions)
-    # DejaVuSans-Bold looks 99% like Arial/Roboto
     linux_font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     if os.path.exists(linux_font):
         return ImageFont.truetype(linux_font, 60), ImageFont.truetype(linux_font, 40)
     
-    # Option 2: Download Roboto (Backup for local run)
     font_path = "font.ttf"
     if not os.path.exists(font_path):
         try:
@@ -35,7 +32,6 @@ def get_safe_font():
     if os.path.exists(font_path):
         return ImageFont.truetype(font_path, 60), ImageFont.truetype(font_path, 40)
 
-    # Option 3: Default (Only if everything fails)
     print("⚠️ Warning: Using ugly default font.")
     return ImageFont.load_default(), ImageFont.load_default()
 
@@ -60,22 +56,29 @@ def create_motivation_image():
                     break
             except: continue
 
-        # 2. Get Background
-        print("2️⃣ Fetching Background...")
+        # 2. Get Random Background
+        print("2️⃣ Fetching Random Background...")
         final_img = None
         try:
-            p_url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q=nature+dark+moody&image_type=photo&per_page=10"
+            # 🔥 NEW: Random Page Logic (1 se 10 ke beech koi bhi page uthayega)
+            random_page = random.randint(1, 10)
+            
+            p_url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q=nature+dark+moody&image_type=photo&per_page=20&page={random_page}"
             pix_data = requests.get(p_url, headers=headers, timeout=10).json()
             
-            for hit in pix_data.get('hits', []):
+            hits = pix_data.get('hits', [])
+            
+            # 🔥 NEW: Shuffle Logic (List ko mix kar dega taaki pehli image na aaye)
+            random.shuffle(hits)
+            
+            for hit in hits:
                 try:
-                    # High Res Image Download
                     img_res = requests.get(hit['largeImageURL'], headers=headers, timeout=15)
                     img = Image.open(io.BytesIO(img_res.content))
                     img.verify()
                     
                     final_img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
-                    print(f"✅ Background Loaded: {hit['largeImageURL'][:30]}...")
+                    print(f"✅ Background Loaded (Page {random_page}): {hit['largeImageURL'][:30]}...")
                     break
                 except: continue
         except: pass
@@ -83,13 +86,13 @@ def create_motivation_image():
         if not final_img:
             final_img = Image.new('RGB', (1080, 1350), color=(20, 20, 20))
 
-        # 3. Processing (Smart Resize + Overlay)
+        # 3. Processing
         print("3️⃣ Resizing & Texting...")
         
-        # Smart Crop to 1080x1350
+        # Smart Fit
         final_img = ImageOps.fit(final_img, (1080, 1350), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
         
-        # Dark Overlay
+        # Overlay
         overlay = Image.new('RGBA', final_img.size, (0, 0, 0, 120))
         final_img.paste(overlay, (0, 0), overlay)
         
@@ -97,7 +100,6 @@ def create_motivation_image():
         font_quote, font_author = get_safe_font()
         
         # Text Wrapping
-        # 'FreeType' check ensures we use correct width calculation for TTF fonts
         wrap_width = 20 if "FreeType" in str(type(font_quote)) else 40
         lines = textwrap.wrap(quote_text, width=wrap_width)
         
