@@ -1,11 +1,14 @@
 {
     "images": {
-        "images/background1.jpg": "2026-08-07"
+        "images/background1.jpg": "2026-08-07",
+        "images/nature.jpg": "2026-08-07"
     },
     "titles": {
-        "Your daily dose of motivation is here! 🔥": "2026-08-07"
+        "Your daily dose of motivation is here! \ud83d\udd25": "2026-08-07",
+        "Don't stop until you're proud. \ud83d\ude80": "2026-08-07"
     },
     "hashtags": {
-        "#motivation #dailyquotes #lucashart #inspiration": "2026-08-07"
+        "#motivation #dailyquotes #lucashart #inspiration": "2026-08-07",
+        "#nevergiveup #lifelessons #morningmotivation #viralquotes": "2026-08-07"
     }
 }
