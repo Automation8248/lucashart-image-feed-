@@ -41,13 +41,20 @@ def send_telegram(token, chat_id, text):
 
 # --- 30 DAYS COOLING LOGIC ---
 def load_history():
+    default_history = {"images": {}, "titles": {}, "hashtags": {}}
     if not os.path.exists("history.json"):
-        return {"images": {}, "titles": {}, "hashtags": {}}
+        return default_history
     with open("history.json", "r") as f:
         try:
-            return json.load(f)
+            data = json.load(f)
+            # 🔴 FIX FOR THE 'images' KEY ERROR
+            # Agar file empty hai ya keys missing hain, toh unko add kar dega
+            if "images" not in data: data["images"] = {}
+            if "titles" not in data: data["titles"] = {}
+            if "hashtags" not in data: data["hashtags"] = {}
+            return data
         except:
-            return {"images": {}, "titles": {}, "hashtags": {}}
+            return default_history
 
 def save_history(history):
     with open("history.json", "w") as f:
@@ -72,7 +79,7 @@ def get_item_with_cooling(items_list, category, history):
 def get_file_with_cooling(folder, category, history):
     if not os.path.exists(folder): return None
     
-    # 🔴 FIX FOR "1.TXT" ERROR: Filter only valid image files
+    # 🔴 LOGIC TO SEARCH ONLY FOR .jpeg, .jpg, .png etc.
     valid_extensions = ('.jpg', '.jpeg', '.png', '.webp')
     files = [
         os.path.join(folder, f) for f in os.listdir(folder) 
