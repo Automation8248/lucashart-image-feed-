@@ -1,164 +1,241 @@
 import os
+import json
+import random
 import requests
 import textwrap
-import json
-import time
-import io
-import random  # <--- NEW: Randomness ke liye
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from datetime import datetime
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
-# --- CONFIGURATION ---
-PIXABAY_KEY = os.getenv('PIXABAY_KEY')
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN_MOTIVATION')
-WEBHOOK_URL = os.getenv('WEBHOOK_MOTIVATION')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-HISTORY_FILE = "history.txt"
-FIXED_AUTHOR = "- Lucas Hart"
+# --- CONFIGURATION (GitHub Secrets) ---
+SUCCESS_BOT_TOKEN = os.getenv("SUCCESS_BOT_TOKEN")
+SUCCESS_CHAT_ID = os.getenv("SUCCESS_CHAT_ID")
 
-def get_safe_font():
-    """Gets a Professional Font (Uses System Font to avoid download errors)"""
-    linux_font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    if os.path.exists(linux_font):
-        return ImageFont.truetype(linux_font, 60), ImageFont.truetype(linux_font, 40)
-    
-    font_path = "font.ttf"
-    if not os.path.exists(font_path):
-        try:
-            url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
-            r = requests.get(url, timeout=10)
-            with open(font_path, "wb") as f: f.write(r.content)
-        except: pass
-    
-    if os.path.exists(font_path):
-        return ImageFont.truetype(font_path, 60), ImageFont.truetype(font_path, 40)
+ERROR_BOT_TOKEN = os.getenv("ERROR_BOT_TOKEN")
+ERROR_CHAT_ID = os.getenv("ERROR_CHAT_ID")
 
-    print("⚠️ Warning: Using ugly default font.")
-    return ImageFont.load_default(), ImageFont.load_default()
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-def create_motivation_image():
+SOCIAL_MEDIA_NAME = "Instagram/Facebook"
+AUTOMATION_NAME = "Daily Quote Image Automator"
+FIXED_AUTHOR = "Lucas Hart"  # Aapka bataya hua author name
+
+# --- MULTIPLE USER AGENTS ---
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/114.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/114.0.1823.43"
+]
+
+def get_headers():
+    return {'User-Agent': random.choice(USER_AGENTS)}
+
+def send_telegram(token, chat_id, text):
     try:
-        # 1. Get Quote
-        print("1️⃣ Fetching Quote...")
-        used_quotes = []
-        if os.path.exists(HISTORY_FILE):
-            with open(HISTORY_FILE, "r") as f: used_quotes = f.read().splitlines()
-
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        quote_text = "\"The only way to do great work is to love what you do.\""
-        raw_q = "Default"
-
-        for _ in range(3):
-            try:
-                res = requests.get("https://zenquotes.io/api/random", headers=headers, timeout=5).json()[0]
-                if res['q'] not in used_quotes:
-                    quote_text = f'"{res["q"]}"'
-                    raw_q = res['q']
-                    break
-            except: continue
-
-        # 2. Get Random Background
-        print("2️⃣ Fetching Random Background...")
-        final_img = None
-        try:
-            # 🔥 NEW: Random Page Logic (1 se 10 ke beech koi bhi page uthayega)
-            random_page = random.randint(1, 10)
-            
-            p_url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q=nature+dark+moody&image_type=photo&per_page=20&page={random_page}"
-            pix_data = requests.get(p_url, headers=headers, timeout=10).json()
-            
-            hits = pix_data.get('hits', [])
-            
-            # 🔥 NEW: Shuffle Logic (List ko mix kar dega taaki pehli image na aaye)
-            random.shuffle(hits)
-            
-            for hit in hits:
-                try:
-                    img_res = requests.get(hit['largeImageURL'], headers=headers, timeout=15)
-                    img = Image.open(io.BytesIO(img_res.content))
-                    img.verify()
-                    
-                    final_img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
-                    print(f"✅ Background Loaded (Page {random_page}): {hit['largeImageURL'][:30]}...")
-                    break
-                except: continue
-        except: pass
-
-        if not final_img:
-            final_img = Image.new('RGB', (1080, 1350), color=(20, 20, 20))
-
-        # 3. Processing
-        print("3️⃣ Resizing & Texting...")
-        
-        # Smart Fit
-        final_img = ImageOps.fit(final_img, (1080, 1350), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
-        
-        # Overlay
-        overlay = Image.new('RGBA', final_img.size, (0, 0, 0, 120))
-        final_img.paste(overlay, (0, 0), overlay)
-        
-        draw = ImageDraw.Draw(final_img)
-        font_quote, font_author = get_safe_font()
-        
-        # Text Wrapping
-        wrap_width = 20 if "FreeType" in str(type(font_quote)) else 40
-        lines = textwrap.wrap(quote_text, width=wrap_width)
-        
-        line_height = 85 if "FreeType" in str(type(font_quote)) else 20
-        total_height = len(lines) * line_height
-        y = (1350 - total_height) / 2
-
-        for line in lines:
-            try: w = draw.textbbox((0, 0), line, font=font_quote)[2]
-            except: w = draw.textlength(line, font=font_quote)
-            draw.text(((1080 - w) / 2, y), line, font=font_quote, fill="white")
-            y += line_height
-        
-        y += 40
-        try: w_auth = draw.textbbox((0, 0), FIXED_AUTHOR, font=font_author)[2]
-        except: w_auth = draw.textlength(FIXED_AUTHOR, font=font_author)
-        draw.text(((1080 - w_auth) / 2, y), FIXED_AUTHOR, font=font_author, fill="white")
-        
-        print("💾 Saving File...")
-        final_img.save("post.jpg", optimize=True, quality=75)
-        
-        with open(HISTORY_FILE, "a") as f: f.write(raw_q + "\n")
-        return "post.jpg"
-
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.post(url, data={"chat_id": chat_id, "text": text}, timeout=10)
     except Exception as e:
-        print(f"❌ Error: {e}")
-        return None
+        print(f"Telegram bhejne me error: {e}")
 
-def upload_with_retry(file_path):
-    url = "https://catbox.moe/user/api.php"
-    for attempt in range(1, 4):
+# --- 30 DAYS COOLING LOGIC ---
+def load_history():
+    if not os.path.exists("history.json"):
+        return {"images": {}, "titles": {}, "hashtags": {}}
+    with open("history.json", "r") as f:
         try:
-            print(f"🚀 Uploading (Attempt {attempt})...")
-            with open(file_path, 'rb') as f:
-                r = requests.post(url, data={'reqtype': 'fileupload'}, files={'fileToUpload': f}, timeout=30 * attempt)
-                if "http" in r.text: return r.text
-        except Exception as e:
-            print(f"⚠️ Fail: {e}")
-            time.sleep(5)
+            return json.load(f)
+        except:
+            return {"images": {}, "titles": {}, "hashtags": {}}
+
+def save_history(history):
+    with open("history.json", "w") as f:
+        json.dump(history, f, indent=4)
+
+def is_cooled_down(item_name, category, history):
+    last_used = history.get(category, {}).get(item_name)
+    if not last_used: return True
+    
+    last_used_date = datetime.strptime(last_used, "%Y-%m-%d")
+    if (datetime.now() - last_used_date).days >= 30:
+        return True
+    return False
+
+def get_item_with_cooling(items_list, category, history):
+    random.shuffle(items_list)
+    for item in items_list:
+        if is_cooled_down(item, category, history):
+            return item
     return None
 
-def main():
-    path = create_motivation_image()
-    if not path: return
+def get_file_with_cooling(folder, category, history):
+    if not os.path.exists(folder): return None
+    files = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+    return get_item_with_cooling(files, category, history)
 
-    url = upload_with_retry(path)
-    if url:
-        print(f"✅ SUCCESS: {url}")
-        # Yahan niche correction kiya gaya hai (Indentation sahi ki gayi hai)
-        caption = "💡 Daily Motivation. #motivation #motivationalquotes #success #mindset #inspiration #dailyinspiration #lifegoals #selfbelief #positivity #hardwork #discipline #nevergiveup #growthmindset #inspirationalvideo #motivationalvideo #reelsmotivation #shortsmotivation #viralreels #explorepage #trendingreels #LucasHart" 
-        
-        if TELEGRAM_TOKEN and CHAT_ID:
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto", 
-                         json={"chat_id": CHAT_ID, "photo": url, "caption": caption})
-        
-        if WEBHOOK_URL:
-            requests.post(WEBHOOK_URL, json={"content": f"{caption}\n{url}"})
+def get_text_with_cooling(filename, category, history):
+    if not os.path.exists(filename): return None
+    with open(filename, "r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f.readlines() if line.strip()]
+    return get_item_with_cooling(lines, category, history)
+
+# --- QUOTE & IMAGE GENERATION (4:5 Ratio) ---
+def get_free_quote_only():
+    try:
+        res = requests.get("https://zenquotes.io/api/random", headers=get_headers(), timeout=10)
+        return res.json()[0]['q']
+    except: return "Your only limit is your mind."
+
+def create_image_post(quote_text, history):
+    bg_path = get_file_with_cooling("images", "images", history)
+    if not bg_path: 
+        raise Exception("Images folder khali hai ya sabhi images 30 din ke cooling me hain!")
+
+    # Load Image
+    img = Image.open(bg_path).convert("RGB")
+    TARGET_W, TARGET_H = 1080, 1350
+
+    # 1. Center Crop to 4:5 Aspect Ratio
+    img_w, img_h = img.size
+    target_ratio = TARGET_W / TARGET_H
+    img_ratio = img_w / img_h
+    
+    if img_ratio > target_ratio:
+        new_w = int(img_h * target_ratio)
+        left = (img_w - new_w) // 2
+        img = img.crop((left, 0, left + new_w, img_h))
     else:
-        print("❌ Upload failed.")
+        new_h = int(img_w / target_ratio)
+        top = (img_h - new_h) // 2
+        img = img.crop((0, top, img_w, top + new_h))
+        
+    img = img.resize((TARGET_W, TARGET_H), Image.Resampling.LANCZOS)
+    
+    # 2. Darken background (0.6 brightness)
+    enhancer = ImageEnhance.Brightness(img)
+    img = enhancer.enhance(0.6)
+    
+    draw = ImageDraw.Draw(img)
+    
+    # Font setup (Ubuntu Linux standard font path, GitHub Actions par kaam karega)
+    try:
+        font_quote = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 65)
+        font_author = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
+    except:
+        font_quote = ImageFont.load_default()
+        font_author = ImageFont.load_default()
+
+    # 3. Add Quote (Upper-mid side)
+    wrapped_quote = textwrap.fill(f"\"{quote_text}\"", width=25)
+    
+    # Text bounds nikalne ke liye
+    bbox_quote = draw.multiline_textbbox((0, 0), wrapped_quote, font=font_quote, align='center')
+    text_w = bbox_quote[2] - bbox_quote[0]
+    
+    x_quote = (TARGET_W - text_w) / 2
+    y_quote = 400 # Upper side me
+    
+    draw.multiline_text((x_quote, y_quote), wrapped_quote, font=font_quote, fill="white", align="center")
+    
+    # 4. Add Author Name (Bottom side)
+    author_text = f"- {FIXED_AUTHOR}"
+    bbox_author = draw.textbbox((0, 0), author_text, font=font_author)
+    author_w = bbox_author[2] - bbox_author[0]
+    
+    x_author = (TARGET_W - author_w) / 2
+    y_author = 1100 # Niche ki side me
+    
+    draw.text((x_author, y_author), author_text, font=font_author, fill="white")
+    
+    output_path = "final_post.jpg"
+    img.save(output_path, quality=95)
+    
+    # Update History
+    today = datetime.now().strftime("%Y-%m-%d")
+    history["images"][bg_path] = today
+    
+    return output_path, history
+
+# --- FAST UPLOAD LOGIC ---
+def upload_media_with_fallbacks(file_path):
+    filename = os.path.basename(file_path)
+    print("🚀 Starting Fast 10-Server Upload for Image...")
+
+    servers = [
+        ("Catbox", lambda: requests.post("https://catbox.moe/user/api.php", data={'reqtype': 'fileupload'}, files={'fileToUpload': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+        ("Litterbox", lambda: requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={'reqtype': 'fileupload', 'time': '72h'}, files={'fileToUpload': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+        ("0x0.st", lambda: requests.post("https://0x0.st", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+        ("Transfer.sh", lambda: requests.put(f"https://transfer.sh/{filename}", data=open(file_path, 'rb'), headers=get_headers(), timeout=30)),
+        ("Tmpfiles.org", lambda: requests.post("https://tmpfiles.org/api/v1/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+        ("File.io", lambda: requests.post("https://file.io", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30))
+    ]
+
+    for name, req_func in servers:
+        print(f"Trying {name}...")
+        try:
+            res = req_func()
+            if res.status_code in [200, 201]:
+                if name == "Tmpfiles.org":
+                    return res.json()['data']['url'].replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                if name == "File.io":
+                    return res.json()['link']
+                url = res.text.strip()
+                if url.startswith("http"): return url
+        except Exception as e:
+            print(f"{name} Failed: {e}")
+            continue
+            
+    raise Exception("Sabhi upload servers fail ho gaye!")
+
+# --- MAIN EXECUTION ---
+def main():
+    try:
+        history = load_history()
+        
+        # 1. Fetch Title and Hashtag with Cooling
+        title = get_text_with_cooling("titles.txt", "titles", history)
+        hashtag = get_text_with_cooling("hashtags.txt", "hashtags", history)
+        
+        if not title: raise Exception("Sabhi Titles cooling me hain ya titles.txt khali hai!")
+        if not hashtag: raise Exception("Sabhi Hashtags cooling me hain ya hashtags.txt khali hai!")
+
+        # 2. Get Quote & Create Image Post
+        quote = get_free_quote_only()
+        image_path, history = create_image_post(quote, history)
+        
+        # 3. Upload Image
+        media_url = upload_media_with_fallbacks(image_path)
+        
+        # 4. Send to Webhook
+        webhook_data = {
+            "media_url": media_url,
+            "title": title,
+            "hashtags": hashtag,
+            "social_media": SOCIAL_MEDIA_NAME
+        }
+        webhook_res = requests.post(WEBHOOK_URL, json=webhook_data, timeout=20)
+        
+        if webhook_res.status_code not in [200, 201, 204]:
+            raise Exception(f"Webhook Failed with status {webhook_res.status_code}")
+
+        # 5. Update History & Save
+        today = datetime.now().strftime("%Y-%m-%d")
+        history["titles"][title] = today
+        history["hashtags"][hashtag] = today
+        save_history(history)
+        
+        # 6. Success Telegram Message
+        msg = f"✅ SUCCESS!\nSocial Media: {SOCIAL_MEDIA_NAME}\nAutomation: {AUTOMATION_NAME}\nPost URL: {media_url}"
+        send_telegram(SUCCESS_BOT_TOKEN, SUCCESS_CHAT_ID, msg)
+        print("Done successfully!")
+
+    except Exception as e:
+        # Error Telegram Message
+        error_msg = f"❌ ERROR!\nSocial Media: {SOCIAL_MEDIA_NAME}\nAutomation: {AUTOMATION_NAME}\nError Detail: {str(e)}"
+        send_telegram(ERROR_BOT_TOKEN, ERROR_CHAT_ID, error_msg)
+        print(f"Failed: {e}")
+        exit(1)
 
 if __name__ == "__main__":
     main()
