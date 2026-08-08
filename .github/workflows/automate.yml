@@ -1,4 +1,4 @@
-name: Daily Image Post Automation
+name: Image Post Automation
 
 on:
   schedule:
