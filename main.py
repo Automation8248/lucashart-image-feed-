@@ -181,13 +181,31 @@ def upload_media_with_fallbacks(file_path):
     print("🚀 Starting Fast 10-Server Upload for Image...")
 
     servers = [
-        ("Catbox", lambda: requests.post("https://catbox.moe/user/api.php", data={'reqtype': 'fileupload'}, files={'fileToUpload': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
-        ("Litterbox", lambda: requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={'reqtype': 'fileupload', 'time': '72h'}, files={'fileToUpload': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
-        ("0x0.st", lambda: requests.post("https://0x0.st", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
-        ("Transfer.sh", lambda: requests.put(f"https://transfer.sh/{filename}", data=open(file_path, 'rb'), headers=get_headers(), timeout=30)),
-        ("Tmpfiles.org", lambda: requests.post("https://tmpfiles.org/api/v1/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
-        ("File.io", lambda: requests.post("https://file.io", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30))
-    ]
+    ("Catbox.moe", lambda: requests.post("https://catbox.moe/user/api.php", data={'reqtype': 'fileupload'}, files={'fileToUpload': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Uguu", lambda: requests.post("https://uguu.se/upload.php", files={'files[]': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("0x0.gg", lambda: requests.post("https://0x0.gg", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("0x0.st", lambda: requests.post("https://0x0.st", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("file.io", lambda: requests.post("https://file.io", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("GoFile", lambda: requests.post("https://store1.gofile.io/uploadFile", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Pixeldrain", lambda: requests.post("https://pixeldrain.com/api/file", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Filebin", lambda: requests.post(f"https://filebin.net/randombin/{filename}", data=open(file_path, 'rb'), headers=get_headers(), timeout=30)),
+    ("SwissTransfer", lambda: requests.post("https://www.swisstransfer.com/api/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("WeTransfer", lambda: requests.post("https://wetransfer.com/api/v4/transfers", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Litterbox", lambda: requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={'reqtype': 'fileupload', 'time': '72h'}, files={'fileToUpload': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Transfer.sh", lambda: requests.put(f"https://transfer.sh/{filename}", data=open(file_path, 'rb'), headers=get_headers(), timeout=30)),
+    ("Tmpfiles.org", lambda: requests.post("https://tmpfiles.org/api/v1/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Temp.sh", lambda: requests.put(f"https://temp.sh/{filename}", data=open(file_path, 'rb'), headers=get_headers(), timeout=30)),
+    ("Ufile.io", lambda: requests.post("https://up.ufile.io/v1/upload/temp", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Filemail", lambda: requests.post("https://www.filemail.com/api/file/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Send.vis.ee", lambda: requests.post("https://send.vis.ee/api/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Litterbox.catbox.moe", lambda: requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={'reqtype': 'fileupload', 'time': '72h'}, files={'fileToUpload': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Storage.to", lambda: requests.post("https://storage.to/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("FilePost", lambda: requests.post("https://filepost.io/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("TransferNow", lambda: requests.post("https://api.transfernow.net/v1/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("GoFile mirrors", lambda: requests.post("https://store2.gofile.io/uploadFile", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Anonfiles-style mirrors", lambda: requests.post("https://api.anonfiles.com/upload", files={'file': open(file_path, 'rb')}, headers=get_headers(), timeout=30)),
+    ("Self-hosted transfer.sh", lambda: requests.put(f"http://localhost:8080/{filename}", data=open(file_path, 'rb'), headers=get_headers(), timeout=30))
+]
 
     for name, req_func in servers:
         print(f"Trying {name}...")
